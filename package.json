@@ -1,0 +1,16 @@
+{
+  "name": "virtual-tabletop",
+  "version": "1.0.0",
+  "description": "A complete Virtual Tabletop application with per-player fog of war.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "AI Assistant",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.2"
+  }
+}
