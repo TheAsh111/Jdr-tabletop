@@ -1,26 +1,31 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const path = require('path'); // S'assurer que 'path' est importé
+const path = require('path');
 const multer = require('multer');
+const fs = require('fs'); // Importation du module File System
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
+// S'assurer que le dossier 'uploads' existe au démarrage
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir);
+    console.log(`Le dossier ${uploadsDir} a été créé.`);
+}
+
 // Configuration du stockage pour les fichiers uploadés
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
+    destination: (req, file, cb) => cb(null, uploadsDir),
     filename: (req, file, cb) => cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`)
 });
 const upload = multer({ storage: storage });
 
-// --- LA CORRECTION EST ICI ---
-// On utilise un chemin absolu pour servir les fichiers statiques, c'est plus robuste.
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
-// Routes pour l'upload de fichiers
 app.post('/upload-map', upload.single('map-image'), (req, res) => {
     if (!req.file) return res.status(400).send('Aucun fichier uploadé.');
     res.json({ filePath: `/uploads/${req.file.filename}` });
@@ -32,7 +37,6 @@ app.post('/upload-token', upload.single('token-image'), (req, res) => {
 
 const gameSessions = {};
 
-// Fonctions utilitaires
 function sendFullFogStateToGm(sessionId) {
     const session = gameSessions[sessionId];
     if (session && session.gmId) {
@@ -50,7 +54,6 @@ function sendPlayerListToGm(sessionId) {
     }
 }
 
-// Logique Socket.io
 io.on('connection', (socket) => {
     console.log(`Nouvel utilisateur connecté: ${socket.id}`);
 
@@ -87,7 +90,6 @@ io.on('connection', (socket) => {
         if (session && session.gmId === socket.id && session.players[playerId]) {
             if (newName && newName.trim().length > 0) {
                 session.players[playerId].name = newName.trim();
-                console.log(`Le joueur ${playerId} a été renommé en "${newName.trim()}"`);
                 sendPlayerListToGm(sessionId);
             }
         }
