@@ -3,20 +3,18 @@ const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
 const multer = require('multer');
-const fs = require('fs'); // Importation du module File System
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// S'assurer que le dossier 'uploads' existe au démarrage
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir);
     console.log(`Le dossier ${uploadsDir} a été créé.`);
 }
 
-// Configuration du stockage pour les fichiers uploadés
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadsDir),
     filename: (req, file, cb) => cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`)
@@ -79,7 +77,6 @@ io.on('connection', (socket) => {
             socket.emit('game-state', { map: session.map, tokens: session.tokens });
             sendFullFogStateToGm(sessionId);
             sendPlayerListToGm(sessionId);
-            console.log(`Joueur ${socket.id} a rejoint la session ${sessionId}`);
         } else {
             socket.emit('error-message', 'Session non trouvée.');
         }
@@ -96,7 +93,6 @@ io.on('connection', (socket) => {
     });
     
     socket.on('disconnect', () => {
-        console.log(`Utilisateur déconnecté: ${socket.id}`);
         for (const sessionId in gameSessions) {
             if (gameSessions[sessionId].players[socket.id]) {
                 const playerWasGm = gameSessions[sessionId].gmId === socket.id;
@@ -166,9 +162,10 @@ io.on('connection', (socket) => {
     socket.on('reveal-fog', ({ sessionId, points, targetPlayerIds }) => {
         const session = gameSessions[sessionId];
         if (session && session.gmId === socket.id) {
+            const revealPoints = points.map(p => ({ ...p, type: 'reveal' }));
             targetPlayerIds.forEach(playerId => {
                 if (session.fogOfWar[playerId]) {
-                    session.fogOfWar[playerId].push(...points);
+                    session.fogOfWar[playerId].push(...revealPoints);
                     io.to(playerId).emit('fog-update', session.fogOfWar[playerId]);
                 }
             });
@@ -176,12 +173,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('remask-fog', ({ sessionId, point, targetPlayerIds }) => {
+    socket.on('remask-fog', ({ sessionId, points, targetPlayerIds }) => {
         const session = gameSessions[sessionId];
         if (session && session.gmId === socket.id) {
+            const remaskPoints = points.map(p => ({ ...p, type: 'remask' }));
             targetPlayerIds.forEach(playerId => {
                 if (session.fogOfWar[playerId]) {
-                    session.fogOfWar[playerId] = [];
+                    session.fogOfWar[playerId].push(...remaskPoints);
                     io.to(playerId).emit('fog-update', session.fogOfWar[playerId]);
                 }
             });

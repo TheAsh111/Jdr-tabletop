@@ -94,41 +94,42 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- NOUVELLE LOGIQUE DE DESSIN ---
+    // --- NOUVELLE LOGIQUE DE DESSIN FINALE ---
 
-    // Étape A: Préparer le calque du brouillard (toujours 100% opaque)
+    // Étape A: Préparer le calque du brouillard (les "données" brutes)
     function prepareFogCanvas(fogPoints) {
         if (!clientState.fogCanvas || !clientState.map.image) return;
         const fogCtx = clientState.fogCanvas.getContext('2d');
-        const fogColor = 'rgba(0, 0, 0, 1.0)'; // Toujours opaque
+        const fogColor = 'rgba(0, 0, 0, 1.0)'; // On travaille TOUJOURS avec du 100% opaque
 
-        // 1. Remplir avec du noir opaque
+        // 1. On remplit avec du noir opaque
         fogCtx.clearRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
         fogCtx.fillStyle = fogColor;
         fogCtx.fillRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
 
-        // 2. Rejouer la chronologie des opérations
+        // 2. On rejoue la chronologie des opérations sur ce calque opaque
         if (fogPoints && fogPoints.length > 0) {
             fogPoints.forEach(point => {
                 if (point.type === 'reveal') {
+                    // On gomme
                     fogCtx.globalCompositeOperation = 'destination-out';
                     fogCtx.beginPath();
                     fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
                     fogCtx.fill();
                 } else if (point.type === 'remask') {
+                    // On repeint avec la même couleur opaque que le fond
                     fogCtx.globalCompositeOperation = 'source-over';
-                    fogCtx.fillStyle = fogColor; // On repeint avec du noir opaque
+                    fogCtx.fillStyle = fogColor;
                     fogCtx.beginPath();
                     fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
                     fogCtx.fill();
                 }
             });
         }
-        // On remet l'état par défaut pour la propreté
-        fogCtx.globalCompositeOperation = 'source-over';
+        fogCtx.globalCompositeOperation = 'source-over'; // On remet l'état par défaut
     }
 
-    // Étape B: Dessiner la scène finale
+    // Étape B: Dessiner la scène finale (la "présentation")
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -148,14 +149,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             prepareFogCanvas(fogToDraw);
 
-            // Pour le MJ, on applique son filtre de vue. Pour le joueur, on dessine normalement.
+            // On dessine le calque de brouillard (opaque) préparé.
+            // Pour le MJ, on applique un filtre de transparence global à ce dessin.
+            ctx.save(); // On sauvegarde l'état du canvas
             if (clientState.role === 'gm') {
                 ctx.globalAlpha = clientState.fogOpacity;
-                ctx.drawImage(clientState.fogCanvas, 0, 0);
-                ctx.globalAlpha = 1.0; // Important: réinitialiser pour les pions !
-            } else {
-                ctx.drawImage(clientState.fogCanvas, 0, 0);
             }
+            ctx.drawImage(clientState.fogCanvas, 0, 0);
+            ctx.restore(); // On restaure l'état (donc globalAlpha redevient 1.0)
         }
 
         // 3. Dessiner les pions par-dessus tout
@@ -197,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (clientState.role === 'gm' || clientState.mouse.isDown) requestAnimationFrame(draw);
     });
 
+    // Le reste du fichier est identique et correct...
     // --- Connexion & Session ---
     document.getElementById('create-session-btn').addEventListener('click', () => socket.emit('create-session'));
     document.getElementById('join-session-btn').addEventListener('click', () => {
