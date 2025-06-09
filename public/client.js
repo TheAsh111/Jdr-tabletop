@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sessionIdDisplay = document.getElementById('session-id-display');
     const brushSizeDisplay = document.getElementById('brush-size-display');
     const opacityDisplay = document.getElementById('opacity-display');
+    const sessionInfoP = document.getElementById('session-info-p');
 
     // --- État Local du Client ---
     let clientState = {
@@ -23,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
         map: { image: null, url: null },
         fogCanvas: null, 
         tokens: [], myFog: [], allPlayersFog: {},
-        gmViewAsPlayerId: null, fogOpacity: 1.0, selectedTokenId: null,
+        gmViewAsPlayerId: null, fogOpacity: 0.7, selectedTokenId: null,
         mouse: { isDown: false, button: -1, action: null },
         dragStart: { x: 0, y: 0 },
         gmTools: { brushSize: 50 }
@@ -35,7 +36,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (clientState.selectedTokenId) {
             playerListHeader.innerHTML = "Cliquez sur un joueur pour <b>assigner</b>, double-cliquez pour <b>renommer</b>.";
         } else {
-            playerListHeader.innerHTML = "Ciblez des joueurs pour le brouillard. Double-cliquez pour renommer.";
+            playerListHeader.innerHTML = "Cliquez sur un joueur pour <b>sélectionner</b> son pion. Double-cliquez pour renommer.";
+        }
+    }
+
+    function updatePlayerListHighlights() {
+        if (clientState.role !== 'gm') return;
+        document.querySelectorAll('#player-list-fog label').forEach(label => {
+            label.classList.remove('highlighted');
+        });
+        if (clientState.selectedTokenId) {
+            const selectedToken = clientState.tokens.find(t => t.id === clientState.selectedTokenId);
+            if (selectedToken && selectedToken.ownerId) {
+                const playerLabel = document.querySelector(`#player-list-fog label[data-player-id="${selectedToken.ownerId}"]`);
+                if (playerLabel) {
+                    playerLabel.classList.add('highlighted');
+                }
+            }
         }
     }
 
@@ -59,21 +76,89 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(resizeCanvas, 300);
     });
 
-    // --- Boucle de Rendu ---
+    if (sessionInfoP) {
+        sessionInfoP.addEventListener('click', () => {
+            const sessionId = clientState.sessionId;
+            if (!sessionId) return;
+            navigator.clipboard.writeText(sessionId).then(() => {
+                const feedback = document.createElement('span');
+                feedback.textContent = 'Copié !';
+                feedback.className = 'copy-feedback';
+                sessionInfoP.appendChild(feedback);
+                setTimeout(() => {
+                    feedback.remove();
+                }, 1200);
+            }).catch(err => {
+                console.error('Erreur lors de la copie dans le presse-papiers:', err);
+            });
+        });
+    }
+
+    // --- NOUVELLE LOGIQUE DE DESSIN ---
+
+    // Étape A: Préparer le calque du brouillard (toujours 100% opaque)
+    function prepareFogCanvas(fogPoints) {
+        if (!clientState.fogCanvas || !clientState.map.image) return;
+        const fogCtx = clientState.fogCanvas.getContext('2d');
+        const fogColor = 'rgba(0, 0, 0, 1.0)'; // Toujours opaque
+
+        // 1. Remplir avec du noir opaque
+        fogCtx.clearRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
+        fogCtx.fillStyle = fogColor;
+        fogCtx.fillRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
+
+        // 2. Rejouer la chronologie des opérations
+        if (fogPoints && fogPoints.length > 0) {
+            fogPoints.forEach(point => {
+                if (point.type === 'reveal') {
+                    fogCtx.globalCompositeOperation = 'destination-out';
+                    fogCtx.beginPath();
+                    fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
+                    fogCtx.fill();
+                } else if (point.type === 'remask') {
+                    fogCtx.globalCompositeOperation = 'source-over';
+                    fogCtx.fillStyle = fogColor; // On repeint avec du noir opaque
+                    fogCtx.beginPath();
+                    fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
+                    fogCtx.fill();
+                }
+            });
+        }
+        // On remet l'état par défaut pour la propreté
+        fogCtx.globalCompositeOperation = 'source-over';
+    }
+
+    // Étape B: Dessiner la scène finale
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 1. Dessiner la carte
         if (clientState.map.image) {
             ctx.drawImage(clientState.map.image, 0, 0);
         } else {
             ctx.fillStyle = '#ccc'; ctx.font = '24px Arial'; ctx.textAlign = 'center';
             ctx.fillText("En attente d'une carte...", canvas.width / 2, canvas.height / 2);
         }
+
+        // 2. Préparer et dessiner le brouillard
         if (clientState.map.image) {
             const fogToDraw = (clientState.role === 'player')
                 ? clientState.myFog
                 : (clientState.gmViewAsPlayerId ? (clientState.allPlayersFog[clientState.gmViewAsPlayerId] || []) : Object.values(clientState.allPlayersFog).flat());
-            drawFog(fogToDraw);
+            
+            prepareFogCanvas(fogToDraw);
+
+            // Pour le MJ, on applique son filtre de vue. Pour le joueur, on dessine normalement.
+            if (clientState.role === 'gm') {
+                ctx.globalAlpha = clientState.fogOpacity;
+                ctx.drawImage(clientState.fogCanvas, 0, 0);
+                ctx.globalAlpha = 1.0; // Important: réinitialiser pour les pions !
+            } else {
+                ctx.drawImage(clientState.fogCanvas, 0, 0);
+            }
         }
+
+        // 3. Dessiner les pions par-dessus tout
         clientState.tokens.forEach(token => {
             if (token.image) {
                 if (token.id === clientState.selectedTokenId) {
@@ -84,36 +169,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.drawImage(token.image, token.x, token.y, token.size, token.size);
             }
         });
+        
+        // 4. Dessiner l'aperçu du pinceau
         if (clientState.role === 'gm' && clientState.mouse.isDown && (clientState.mouse.action === 'revealingFog' || clientState.mouse.action === 'remaskingFog')) {
             const mousePos = getMousePos(canvas, lastMouseEvent);
             if (mousePos) {
                 ctx.beginPath();
-                ctx.strokeStyle = clientState.mouse.action === 'remaskingFog' ? 'rgba(255,0,0,0.8)' : 'rgba(255,255,255,0.8)';
-                ctx.lineWidth = 2;
                 ctx.arc(mousePos.x, mousePos.y, clientState.gmTools.brushSize, 0, Math.PI * 2);
-                ctx.stroke();
+                if (clientState.mouse.action === 'revealingFog') {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else if (clientState.mouse.action === 'remaskingFog') {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
             }
         }
-    }
-
-    function drawFog(fogPoints) {
-        if (!clientState.fogCanvas || !clientState.map.image) return;
-        const fogCtx = clientState.fogCanvas.getContext('2d');
-        const opacity = clientState.role === 'gm' ? clientState.fogOpacity : 1.0;
-        
-        fogCtx.clearRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
-        fogCtx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
-        fogCtx.fillRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
-        if (fogPoints && fogPoints.length > 0) {
-            fogCtx.globalCompositeOperation = 'destination-out';
-            fogPoints.forEach(point => {
-                fogCtx.beginPath();
-                fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
-                fogCtx.fill();
-            });
-            fogCtx.globalCompositeOperation = 'source-over';
-        }
-        ctx.drawImage(clientState.fogCanvas, 0, 0);
     }
 
     let lastMouseEvent = null;
@@ -238,6 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (clientState.role === 'gm') {
                     document.body.classList.add('gm-assign-mode');
                     updatePlayerListHeaderText();
+                    updatePlayerListHighlights();
                 }
                 clientState.dragStart = { x: pos.x - token.x, y: pos.y - token.y };
                 if (clientState.role === 'gm' && token.ownerId) {
@@ -250,6 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 clientState.selectedTokenId = null;
                 document.body.classList.remove('gm-assign-mode');
                 updatePlayerListHeaderText();
+                updatePlayerListHighlights();
                 handleFogInteraction(pos, 'reveal');
             }
         } else if (e.button === 2) {
@@ -280,10 +357,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.code === 'Space') {
             e.preventDefault();
             if (clientState.role === 'gm') {
-                clientState.selectedTokenId = null; clientState.gmViewAsPlayerId = null;
+                clientState.selectedTokenId = null;
+                clientState.gmViewAsPlayerId = null;
                 gmViewStatus.classList.add('hidden');
                 document.body.classList.remove('gm-assign-mode');
                 updatePlayerListHeaderText();
+                updatePlayerListHighlights();
                 draw();
             } return;
         }
@@ -349,19 +428,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 playerListFogDiv.appendChild(label);
             });
         }
+        updatePlayerListHighlights();
         draw();
     });
     
     playerListFogDiv.addEventListener('click', (e) => {
         const label = e.target.closest('label');
         if (!label || e.target.tagName === 'INPUT') return;
+        
         e.preventDefault(); 
         const playerId = label.dataset.playerId;
-        if (clientState.role === 'gm' && clientState.selectedTokenId && playerId) {
+        
+        if (clientState.role !== 'gm' || !playerId) return;
+
+        if (clientState.selectedTokenId) {
             socket.emit('assign-token', { sessionId: clientState.sessionId, tokenId: clientState.selectedTokenId, ownerId: playerId });
             clientState.selectedTokenId = null;
             document.body.classList.remove('gm-assign-mode');
             updatePlayerListHeaderText();
+            updatePlayerListHighlights();
+        } 
+        else {
+            const ownedTokens = clientState.tokens.filter(t => t.ownerId === playerId);
+            if (ownedTokens.length > 0) {
+                const tokenToSelect = ownedTokens[0];
+                clientState.selectedTokenId = tokenToSelect.id;
+                document.body.classList.add('gm-assign-mode');
+                updatePlayerListHeaderText();
+                updatePlayerListHighlights();
+                draw();
+            }
         }
     });
 
@@ -383,8 +479,9 @@ document.addEventListener('DOMContentLoaded', () => {
         else targetPlayerIds = Array.from(document.querySelectorAll('#player-list-fog input:checked')).map(input => input.value);
         if(targetPlayerIds.length === 0) return;
         const point = { x: pos.x, y: pos.y, radius: clientState.gmTools.brushSize };
+        
         if (tool === 'reveal') socket.emit('reveal-fog', { sessionId: clientState.sessionId, points: [point], targetPlayerIds });
-        else if (tool === 'remask') socket.emit('remask-fog', { sessionId: clientState.sessionId, point, targetPlayerIds });
+        else if (tool === 'remask') socket.emit('remask-fog', { sessionId: clientState.sessionId, points: [point], targetPlayerIds });
     }
     
     // --- UI & Aide ---
