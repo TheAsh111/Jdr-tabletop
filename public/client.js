@@ -17,6 +17,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const brushSizeDisplay = document.getElementById('brush-size-display');
     const opacityDisplay = document.getElementById('opacity-display');
     const sessionInfoP = document.getElementById('session-info-p');
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zoomValue = document.getElementById('zoom-value');
+    const fitToWindowCheckbox = document.getElementById('fit-to-window-checkbox');
+    const zoomControls = document.getElementById('zoom-controls');
 
     // --- État Local du Client ---
     let clientState = {
@@ -27,7 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
         gmViewAsPlayerId: null, fogOpacity: 0.7, selectedTokenId: null,
         mouse: { isDown: false, button: -1, action: null },
         dragStart: { x: 0, y: 0 },
-        gmTools: { brushSize: 50 }
+        gmTools: { brushSize: 50 },
+        zoomLevel: 1.0,
+        isFitToWindow: false
     };
 
     // --- Fonctions d'UI ---
@@ -55,13 +61,42 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+    
+    function applyZoom() {
+        if (!clientState.map.image) return;
+
+        let scale = clientState.zoomLevel;
+
+        if (clientState.isFitToWindow) {
+            const containerWidth = canvasContainer.clientWidth;
+            const containerHeight = canvasContainer.clientHeight;
+            const mapWidth = clientState.map.image.naturalWidth;
+            const mapHeight = clientState.map.image.naturalHeight;
+
+            const scaleX = containerWidth / mapWidth;
+            const scaleY = containerHeight / mapHeight;
+            scale = Math.min(scaleX, scaleY);
+            
+            zoomSlider.value = scale * 100;
+            zoomValue.textContent = `${Math.round(scale * 100)}%`;
+        } else {
+            zoomSlider.value = clientState.zoomLevel * 100;
+            zoomValue.textContent = `${Math.round(clientState.zoomLevel * 100)}%`;
+        }
+
+        canvas.style.transform = `scale(${scale})`;
+    }
 
     // --- Initialisation et Barre Latérale ---
     function resizeCanvas() {
         canvasContainer.style.width = `${window.innerWidth - controlsPanel.offsetWidth}px`;
+        
         if (clientState.map.image) {
-            canvas.width = clientState.map.image.width;
-            canvas.height = clientState.map.image.height;
+            canvas.width = clientState.map.image.naturalWidth;
+            canvas.height = clientState.map.image.naturalHeight;
+            if (clientState.isFitToWindow) {
+                applyZoom();
+            }
         } else {
             canvas.width = canvasContainer.offsetWidth;
             canvas.height = canvasContainer.offsetHeight;
@@ -94,30 +129,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- NOUVELLE LOGIQUE DE DESSIN FINALE ---
-
-    // Étape A: Préparer le calque du brouillard (les "données" brutes)
+    // --- Logique de Dessin ---
     function prepareFogCanvas(fogPoints) {
         if (!clientState.fogCanvas || !clientState.map.image) return;
         const fogCtx = clientState.fogCanvas.getContext('2d');
-        const fogColor = 'rgba(0, 0, 0, 1.0)'; // On travaille TOUJOURS avec du 100% opaque
+        const fogColor = 'rgba(0, 0, 0, 1.0)'; 
 
-        // 1. On remplit avec du noir opaque
         fogCtx.clearRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
         fogCtx.fillStyle = fogColor;
         fogCtx.fillRect(0, 0, clientState.fogCanvas.width, clientState.fogCanvas.height);
 
-        // 2. On rejoue la chronologie des opérations sur ce calque opaque
         if (fogPoints && fogPoints.length > 0) {
             fogPoints.forEach(point => {
                 if (point.type === 'reveal') {
-                    // On gomme
                     fogCtx.globalCompositeOperation = 'destination-out';
                     fogCtx.beginPath();
                     fogCtx.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
                     fogCtx.fill();
                 } else if (point.type === 'remask') {
-                    // On repeint avec la même couleur opaque que le fond
                     fogCtx.globalCompositeOperation = 'source-over';
                     fogCtx.fillStyle = fogColor;
                     fogCtx.beginPath();
@@ -126,14 +155,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-        fogCtx.globalCompositeOperation = 'source-over'; // On remet l'état par défaut
+        fogCtx.globalCompositeOperation = 'source-over';
     }
 
-    // Étape B: Dessiner la scène finale (la "présentation")
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // 1. Dessiner la carte
         if (clientState.map.image) {
             ctx.drawImage(clientState.map.image, 0, 0);
         } else {
@@ -141,7 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillText("En attente d'une carte...", canvas.width / 2, canvas.height / 2);
         }
 
-        // 2. Préparer et dessiner le brouillard
         if (clientState.map.image) {
             const fogToDraw = (clientState.role === 'player')
                 ? clientState.myFog
@@ -149,17 +175,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             prepareFogCanvas(fogToDraw);
 
-            // On dessine le calque de brouillard (opaque) préparé.
-            // Pour le MJ, on applique un filtre de transparence global à ce dessin.
-            ctx.save(); // On sauvegarde l'état du canvas
+            ctx.save();
             if (clientState.role === 'gm') {
                 ctx.globalAlpha = clientState.fogOpacity;
             }
             ctx.drawImage(clientState.fogCanvas, 0, 0);
-            ctx.restore(); // On restaure l'état (donc globalAlpha redevient 1.0)
+            ctx.restore();
         }
 
-        // 3. Dessiner les pions par-dessus tout
         clientState.tokens.forEach(token => {
             if (token.image) {
                 if (token.id === clientState.selectedTokenId) {
@@ -171,7 +194,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         
-        // 4. Dessiner l'aperçu du pinceau
         if (clientState.role === 'gm' && clientState.mouse.isDown && (clientState.mouse.action === 'revealingFog' || clientState.mouse.action === 'remaskingFog')) {
             const mousePos = getMousePos(canvas, lastMouseEvent);
             if (mousePos) {
@@ -195,10 +217,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastMouseEvent = null;
     canvas.addEventListener('mousemove', e => {
         lastMouseEvent = e;
-        if (clientState.role === 'gm' || clientState.mouse.isDown) requestAnimationFrame(draw);
+        if (clientState.role === 'gm' && clientState.mouse.isDown) requestAnimationFrame(draw);
     });
 
-    // Le reste du fichier est identique et correct...
     // --- Connexion & Session ---
     document.getElementById('create-session-btn').addEventListener('click', () => socket.emit('create-session'));
     document.getElementById('join-session-btn').addEventListener('click', () => {
@@ -209,6 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clientState.sessionId = sessionId;
         clientState.role = role;
         loginPanel.classList.add('hidden');
+        zoomControls.classList.remove('hidden');
+
         if (role === 'gm') {
             gmPanel.classList.remove('hidden');
             sessionIdDisplay.textContent = sessionId;
@@ -249,9 +272,10 @@ document.addEventListener('DOMContentLoaded', () => {
         img.onload = () => {
             clientState.map.image = img;
             clientState.fogCanvas = document.createElement('canvas');
-            clientState.fogCanvas.width = img.width;
-            clientState.fogCanvas.height = img.height;
+            clientState.fogCanvas.width = img.naturalWidth;
+            clientState.fogCanvas.height = img.naturalHeight;
             resizeCanvas();
+            applyZoom();
         };
     }
     
@@ -298,8 +322,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Interactions Utilisateur ---
     function getMousePos(canvas, evt) {
         if(!evt) return null;
+        
+        let scale = clientState.zoomLevel;
+        if (clientState.isFitToWindow) {
+             const containerWidth = canvasContainer.clientWidth;
+             const containerHeight = canvasContainer.clientHeight;
+             if (!clientState.map.image) return null;
+             const mapWidth = clientState.map.image.naturalWidth;
+             const mapHeight = clientState.map.image.naturalHeight;
+             const scaleX = containerWidth / mapWidth;
+             const scaleY = containerHeight / mapHeight;
+             scale = Math.min(scaleX, scaleY);
+        }
+
         const rect = canvas.getBoundingClientRect();
-        return { x: evt.clientX - rect.left + canvasContainer.scrollLeft, y: evt.clientY - rect.top + canvasContainer.scrollTop };
+        return {
+            x: (evt.clientX - rect.left) / scale,
+            y: (evt.clientY - rect.top) / scale
+        };
     }
     function getTokenAt(x, y) { for (let i = clientState.tokens.length - 1; i >= 0; i--) { const t = clientState.tokens[i]; if (x > t.x && x < t.x + t.size && y > t.y && y < t.y + t.size) return t; } return null; }
     
@@ -393,11 +433,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     canvas.addEventListener('wheel', (e) => {
-        if (clientState.role === 'gm') {
-            e.preventDefault();
+        if (!clientState.map.image) return;
+        e.preventDefault();
+        
+        if (e.ctrlKey) {
+            const zoomAmount = e.deltaY > 0 ? -10 : 10;
+            zoomSlider.value = parseInt(zoomSlider.value) + zoomAmount;
+            zoomSlider.dispatchEvent(new Event('input'));
+        } 
+        else if (clientState.role === 'gm') {
             clientState.gmTools.brushSize += e.deltaY > 0 ? -10 : 10;
             clientState.gmTools.brushSize = Math.max(10, clientState.gmTools.brushSize);
-            brushSizeDisplay.textContent = `${clientState.gmTools.brushSize}px`; draw();
+            brushSizeDisplay.textContent = `${clientState.gmTools.brushSize}px`; 
+            draw();
         }
     });
 
@@ -486,6 +534,21 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (tool === 'remask') socket.emit('remask-fog', { sessionId: clientState.sessionId, points: [point], targetPlayerIds });
     }
     
+    // --- Contrôles de Zoom ---
+    zoomSlider.addEventListener('input', () => {
+        if (clientState.isFitToWindow) {
+            clientState.isFitToWindow = false;
+            fitToWindowCheckbox.checked = false;
+        }
+        clientState.zoomLevel = zoomSlider.value / 100;
+        applyZoom();
+    });
+
+    fitToWindowCheckbox.addEventListener('change', () => {
+        clientState.isFitToWindow = fitToWindowCheckbox.checked;
+        applyZoom();
+    });
+
     // --- UI & Aide ---
     const modal = document.getElementById('help-modal');
     document.getElementById('help-btn').onclick = () => modal.classList.remove('hidden');

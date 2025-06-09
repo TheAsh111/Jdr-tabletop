@@ -33,7 +33,6 @@
                 <label for="map-upload">Charger une carte :</label>
                 <input type="file" id="map-upload" accept="image/*">
                 <label for="map-upload" class="file-upload-label">Choisir un fichier...</label>
-                
                 <hr>
                 
                 <label for="token-upload">Ajouter un pion :</label>
@@ -60,6 +59,20 @@
                 <p>Déplacez votre pion avec la souris.</p>
             </div>
 
+            <!-- LE BLOC DE ZOOM EST MAINTENANT ICI, EN DEHORS DES PANNEAUX SPÉCIFIQUES -->
+            <div id="zoom-controls" class="hidden"> 
+                <hr>
+                <h4>Zoom & Affichage</h4>
+                <label for="zoom-slider">Zoom : <span id="zoom-value">100%</span></label>
+                <div class="zoom-slider-container">
+                    <input type="range" id="zoom-slider" min="20" max="500" value="100" step="10">
+                </div>
+                <div class="fit-to-window-container">
+                    <input type="checkbox" id="fit-to-window-checkbox">
+                    <label for="fit-to-window-checkbox">Ajuster à la fenêtre</label>
+                </div>
+            </div>
+
             <button id="help-btn">Aide</button>
         </div>
     </div>
@@ -71,15 +84,16 @@
             <h3>Général</h3>
             <ul>
                 <li><strong>Clic & Glisser</strong> : Déplacer son pion (ou n'importe quel pion pour le MJ)</li>
+                <li><strong>Ctrl+Molette souris sur la carte</strong> : Zoomer / Dézoomer</li>
             </ul>
             <h3>Maître de Jeu (MJ)</h3>
             <ul>
                 <li><strong>Clic Gauche sur un pion</strong> : Le sélectionner.</li>
                 <li><strong>Clic Gauche sur la carte</strong> : Révéler le brouillard.</li>
                 <li><strong>Clic Droit sur la carte</strong> : Remasquer le brouillard.</li>
+                <li><strong>Molette souris sur le panneau</strong> : Changer la taille du pinceau.</li>
                 <li><strong>Barre Espace</strong> : Désélectionner un pion.</li>
                 <li><strong>Page Up / Page Down</strong> : Agrandir / Rétrécir le pion sélectionné.</li>
-                <li><strong>Molette souris</strong> : Changer la taille du pinceau.</li>
                 <li><strong>Touches +/-</strong> : Changer l'opacité du brouillard.</li>
                 <li><strong>Assigner un pion</strong> : Sélectionner un pion, puis cliquer sur le nom d'un joueur.</li>
                 <li><strong>Renommer un joueur</strong> : Double-cliquer sur le nom du joueur.</li>

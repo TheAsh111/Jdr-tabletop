@@ -23,6 +23,8 @@ body, html {
 
 #game-canvas {
     background-color: #222;
+    transform-origin: top left;
+    transition: transform 0.2s ease-out;
 }
 
 #gm-view-status {
@@ -160,4 +162,48 @@ body.gm-assign-mode #player-list-fog label:hover {
     border-radius: 4px;
     font-size: 0.8em;
     font-weight: bold;
+}
+
+/* Styles pour les contrôles de zoom */
+#zoom-controls {
+    margin-top: auto; /* Pousse ce bloc vers le bas */
+    padding-top: 15px;
+    border-top: 1px solid #4f4f4f;
+}
+
+#zoom-controls h4 {
+    border-bottom: none;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+}
+
+#zoom-controls label {
+    font-size: 0.9em;
+}
+
+.zoom-slider-container {
+    width: 100%;
+}
+
+#zoom-slider {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.fit-to-window-container {
+    display: flex;
+    align-items: center;
+    margin-top: 5px;
+}
+
+.fit-to-window-container input[type="checkbox"] {
+    margin-right: 8px;
+    width: 16px;
+    height: 16px;
+}
+
+.fit-to-window-container label {
+    margin-bottom: 0;
+    font-weight: normal;
+    font-size: 0.95em;
 }
